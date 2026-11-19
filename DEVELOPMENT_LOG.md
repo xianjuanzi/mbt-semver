@@ -73,6 +73,7 @@ docs: add README, project proposal and AI usage disclosure
 - [x] `moon check` / `moon test` 通过（12/12）
 - [x] LICENSE 保留在仓库根目录
 - [x] 已提供 `运行与上传指南.md` 与一键运行的 `run.bat`
+- [x] 本地已整理 11 个有效提交（功能/文档各有独立提交，无空提交）
 - [ ] 仓库推送到 GitHub 并设为 Public
 - [ ] 已加入赛事交流群，群昵称改为 GitHub ID
 - [ ] 通过官网报名入口提交仓库链接与**本人手写**的项目申报书（不要用 AI 代写）
