@@ -1,0 +1,6 @@
+import {
+  "hackathon/mbt-semver/semver",
+  "moonbitlang/core/env",
+}
+
+pkgtype(kind: "executable")
