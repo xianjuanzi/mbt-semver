@@ -13,8 +13,8 @@
 | 项目类型 | 工具库 / 开发者工具 |
 | 主要语言 | MoonBit（100%），仅使用官方核心库 |
 | 开源许可证 | Apache-2.0 |
-| GitHub 仓库 | `https://github.com/xianjunzi/mbt-semver` |
-| 参赛者 / 队长 | GitHub ID：`xianjunzi`（姓名可再补充） |
+| GitHub 仓库 | `https://github.com/xianjuanzi/mbt-semver` |
+| 参赛者 / 队长 | GitHub ID：`xianjuanzi`（姓名可再补充） |
 | 队伍 | 个人参赛（如组队，队员 GitHub ID 待补充，人数不超过 3 人） |
 
 ## 1. 要解决的问题
@@ -69,8 +69,8 @@ AI 工具参与了代码初稿、测试用例与文档的生成。参赛者已�
 
 ## 7. 报名前还需要做的事
 
-- 将本文件夹内容推送到 `https://github.com/xianjunzi/mbt-semver` 并设为 Public
-- GitHub ID 已填为 `xianjunzi`；如需实名信息，可在本页补充姓名
-- 按海报要求加入赛事交流群，并把群昵称改为 `xianjunzi`
+- 将本文件夹内容推送到 `https://github.com/xianjuanzi/mbt-semver` 并设为 Public
+- GitHub ID 已填为 `xianjuanzi`；如需实名信息，可在本页补充姓名
+- 按海报要求加入赛事交流群，并把群昵称改为 `xianjuanzi`
 
 赛事细则与最终口径以官网 <https://moonbitlang.github.io/Hackathon2026/> 及官方通知为准。

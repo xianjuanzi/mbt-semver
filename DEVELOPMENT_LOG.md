@@ -68,8 +68,8 @@ docs: add README, project proposal and AI usage disclosure
 
 ## 五、验收前检查清单
 
-- [x] `moon.mod` 的 `repository` 已改为 `https://github.com/xianjunzi/mbt-semver`
-- [x] 内部项目素材中的 GitHub ID 已填为 `xianjunzi`
+- [x] `moon.mod` 的 `repository` 已改为 `https://github.com/xianjuanzi/mbt-semver`
+- [x] 内部项目素材中的 GitHub ID 已填为 `xianjuanzi`
 - [x] `moon check` / `moon test` 通过（12/12）
 - [x] LICENSE 保留在仓库根目录
 - [x] 已提供 `运行与上传指南.md` 与一键运行的 `run.bat`

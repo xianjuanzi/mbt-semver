@@ -153,4 +153,4 @@ Total tests: 12, passed: 12, failed: 0.
 - 增加 QuickCheck 属性测试，随机对照参考实现
 - 发布到 mooncakes.io，供其他 MoonBit 项目直接引用
 
-仓库地址与 GitHub ID 已按 `xianjunzi` 填好。推送公开仓库后即可按 `运行与上传指南.md` 报名。
+仓库地址与 GitHub ID 已按 `xianjuanzi` 填好。推送公开仓库后即可按 `运行与上传指南.md` 报名。
