@@ -1,0 +1,119 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "hackathon/mbt-semver/semver"
+
+// Values
+pub fn algebra_complement(Array[Interval]) -> Array[Interval]
+
+pub fn algebra_difference(Array[Interval], Array[Interval]) -> Array[Interval]
+
+pub fn algebra_intersection(Array[Interval], Array[Interval]) -> Array[Interval]
+
+pub fn algebra_satisfiable(Array[Interval], Array[Interval]) -> Bool
+
+pub fn algebra_to_string(Array[Interval]) -> String
+
+pub fn algebra_union(Array[Interval], Array[Interval]) -> Array[Interval]
+
+pub fn compare_version(Version, Version) -> Int32
+
+pub fn complement(Array[Interval]) -> Array[Interval]
+
+pub fn contains(Array[Interval], Version) -> Bool
+
+pub fn difference(Array[Interval], Array[Interval]) -> Array[Interval]
+
+pub fn empty_set() -> Array[Interval]
+
+pub fn from_range_set(RangeSet) -> Array[Interval]
+
+pub fn intersection(Array[Interval], Array[Interval]) -> Array[Interval]
+
+pub fn interval_is_empty(Interval) -> Bool
+
+pub fn intervals_overlap(Interval, Interval) -> Bool
+
+pub fn is_empty(Array[Interval]) -> Bool
+
+pub fn is_universal(Array[Interval]) -> Bool
+
+pub fn normalise(Array[Interval]) -> Array[Interval]
+
+pub fn normalize(Array[Interval]) -> Array[Interval]
+
+pub fn parse(String) -> Result[Array[Interval], String]
+
+pub fn parse_algebra(String) -> Result[Array[Interval], String]
+
+pub fn parse_catalogue(Array[String]) -> Result[Array[Version], String]
+
+pub fn parse_range(String) -> Result[RangeSet, String]
+
+pub fn parse_version(String) -> Result[Version, String]
+
+pub fn resolve(Array[(String, Array[Version])], Array[Requirement]) -> Result[Resolution, String]
+
+pub fn satisfiable(Array[Interval], Array[Interval]) -> Bool
+
+pub fn satisfies(Version, RangeSet) -> Bool
+
+pub fn satisfies_text(Version, String) -> Result[Bool, String]
+
+pub fn select_highest(Array[Version]) -> Version?
+
+pub fn to_string(Array[Interval]) -> String
+
+pub fn union(Array[Interval], Array[Interval]) -> Array[Interval]
+
+pub fn universal_set() -> Array[Interval]
+
+// Errors
+
+// Types and methods
+pub struct Bound {
+  version : Version
+  inclusive : Bool
+}
+
+pub struct Interval {
+  lo : Version?
+  hi : Version?
+  lo_inclusive : Bool
+  hi_inclusive : Bool
+}
+pub fn Interval::new(Version?, Bool, Version?, Bool) -> Self
+
+pub struct Range {
+  lower : Bound?
+  upper : Bound?
+}
+
+pub struct RangeSet {
+  ranges : Array[Range]
+  prerelease_keys : Array[String]
+}
+
+pub struct Requirement {
+  name : String
+  range_text : String
+}
+pub fn Requirement::new(String, String) -> Self
+
+pub struct Resolution {
+  selected : Array[(String, Version)]
+}
+
+pub struct Version {
+  major : Int64
+  minor : Int64
+  patch : Int64
+  prerelease : Array[String]
+  build : String?
+}
+pub fn Version::new(Int64, Int64, Int64) -> Self
+pub fn Version::to_string(Self) -> String
+pub impl Compare for Version
+pub impl Eq for Version
+
+// Type aliases
+
+// Traits

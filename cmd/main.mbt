@@ -9,6 +9,7 @@ fn usage() -> Unit {
   println("  moon run cmd -- parse <version>")
   println("  moon run cmd -- compare <version-a> <version-b>")
   println("  moon run cmd -- check <version> <range>")
+  println("  moon run cmd -- algebra           # range set algebra demo")
   println("  moon run cmd -- demo")
 }
 
@@ -104,6 +105,48 @@ fn show_demo() -> Unit {
 }
 
 ///|
+fn show_algebra() -> Unit {
+  println("== range set algebra ==")
+  let a = @semver.parse_algebra(">=1.0.0 <3.0.0")
+  let b = @semver.parse_algebra(">=2.0.0 <4.0.0")
+  match (a, b) {
+    (Ok(x), Ok(y)) => {
+      println("A        = \{@semver.algebra_to_string(x)}")
+      println("B        = \{@semver.algebra_to_string(y)}")
+      println(
+        "A union B= \{@semver.algebra_to_string(@semver.algebra_union(x, y))}",
+      )
+      println(
+        "A inter B= \{@semver.algebra_to_string(@semver.algebra_intersection(x, y))}",
+      )
+      println(
+        "A minus B= \{@semver.algebra_to_string(@semver.algebra_difference(x, y))}",
+      )
+      println(
+        "compl A  = \{@semver.algebra_to_string(@semver.algebra_complement(x))}",
+      )
+      println("A & B satisfiable = \{@semver.algebra_satisfiable(x, y)}")
+    }
+    (Err(e), _) => println("invalid range A: \{e}")
+    (_, Err(e)) => println("invalid range B: \{e}")
+  }
+  println("")
+  println("== canonical form (two expressions, same version set) ==")
+  match
+    (
+      @semver.parse_algebra(">=1.0.0 <3.0.0 || >=2.0.0 <4.0.0"),
+      @semver.parse_algebra(">=1.0.0 <4.0.0"),
+    ) {
+    (Ok(x), Ok(y)) => {
+      println("normalised 1 = \{@semver.algebra_to_string(x)}")
+      println("normalised 2 = \{@semver.algebra_to_string(y)}")
+    }
+    (Err(e), _) => println("invalid range: \{e}")
+    (_, Err(e)) => println("invalid range: \{e}")
+  }
+}
+
+///|
 fn main {
   let args = @env.args()
   if args.length() < 2 {
@@ -117,6 +160,8 @@ fn main {
     show_compare(args[2], args[3])
   } else if command == "check" && args.length() >= 4 {
     show_check(args[2], args[3])
+  } else if command == "algebra" {
+    show_algebra()
   } else if command == "demo" {
     show_demo()
   } else {

@@ -9,18 +9,24 @@
 /// build metadata suffix (without the leading `+`). Build metadata is ignored
 /// by version precedence, as required by SemVer 2.0.0 section 10.
 pub struct Version {
-  major : Int32
-  minor : Int32
-  patch : Int32
+  major : Int64
+  minor : Int64
+  patch : Int64
   prerelease : Array[String]
   build : String?
 }
 
 ///|
 /// Create a normal (non-prerelease) version.
-pub fn Version::new(major : Int32, minor : Int32, patch : Int32) -> Version {
+pub fn Version::new(major : Int64, minor : Int64, patch : Int64) -> Version {
   { major, minor, patch, prerelease: [], build: None, }
 }
+
+///|
+/// Largest core-component value representable by Int64. SemVer places no
+/// numeric bound on core components, so values beyond this are rejected with
+/// a clear error rather than silently wrapping to a negative number.
+const MAX_CORE : Int64 = 9223372036854775807L
 
 ///|
 fn cmp_int(a : Int32, b : Int32) -> Int32 {
@@ -34,8 +40,21 @@ fn cmp_int(a : Int32, b : Int32) -> Int32 {
 }
 
 ///|
-/// Parse a numeric identifier: ASCII digits only, no leading zero.
-fn parse_number(view : StringView) -> Result[Int32, String] {
+fn cmp_i64(a : Int64, b : Int64) -> Int32 {
+  if a < b {
+    -1
+  } else if a > b {
+    1
+  } else {
+    0
+  }
+}
+
+///|
+/// Parse a numeric identifier: ASCII digits only, no leading zero. Uses Int64
+/// and checks every step for overflow so a very large component is rejected
+/// instead of wrapping to a negative value (which would break precedence).
+fn parse_number(view : StringView) -> Result[Int64, String] {
   if view.length() == 0 {
     return Err("empty numeric identifier")
   }
@@ -48,7 +67,7 @@ fn parse_number(view : StringView) -> Result[Int32, String] {
       if first == '0' && view.length() > 1 {
         return Err("numeric identifier has a leading zero")
       }
-      let mut value = 0
+      let mut value : Int64 = 0L
       for i = 0; i < view.length(); i = i + 1 {
         match view.get_char(i) {
           None => return Err("missing digit")
@@ -56,7 +75,12 @@ fn parse_number(view : StringView) -> Result[Int32, String] {
             if !ch.is_ascii_digit() {
               return Err("numeric identifier contains a non-digit")
             }
-            value = value * 10 + (ch.to_int() - '0'.to_int())
+            let digit : Int64 = (ch.to_int() - '0'.to_int()).to_int64()
+            // value * 10 + digit <= MAX_CORE  <=>  value <= (MAX_CORE - digit) / 10
+            if value > (MAX_CORE - digit) / 10L {
+              return Err("numeric identifier exceeds the supported range")
+            }
+            value = value * 10L + digit
           }
         }
       }
@@ -108,9 +132,18 @@ fn parse_ids(
       return Err("invalid identifier: \{id}")
     }
     if numeric_rules && is_numeric_identifier(id) {
-      match parse_number(id) {
-        Err(e) => return Err(e)
-        Ok(_) => ()
+      // SemVer numeric identifiers must not have leading zeroes. Check the
+      // syntax directly instead of parsing to Int64: prerelease identifiers
+      // may be arbitrarily long and must not be capped by the core-version
+      // integer range.
+      if id.length() > 1 {
+        match id.get_char(0) {
+          Some(first) =>
+            if first == '0' {
+              return Err("numeric identifier has a leading zero")
+            }
+          None => ()
+        }
       }
     }
     result.push(id.to_owned())
@@ -144,28 +177,30 @@ pub fn parse_version(input : String) -> Result[Version, String] {
     Ok(v) => v
     Err(e) => return Err(e)
   }
-  let minus = patch_view.find("-")
+  // `+` is the single build separator. Search for the prerelease `-` only in
+  // the part BEFORE `+`: a build suffix may legally contain `-` (e.g. the
+  // valid version `1.2.3+build-1`). Searching `-` across the whole patch view
+  // would wrongly treat that build hyphen as a prerelease separator.
   let plus = patch_view.find("+")
+  let build_start = match plus {
+    Some(idx) => idx + 1
+    None => -1
+  }
 
-  let mut core_end = patch_view.length()
+  // `pre_region` is the core + prerelease portion, excluding build metadata.
+  let pre_region_end = match plus {
+    Some(idx) => idx
+    None => patch_view.length()
+  }
+  let pre_region = patch_view[:pre_region_end]
+  let minus = pre_region.find("-")
+
+  let mut core_end = pre_region_end
   let mut pre_start = -1
-  let mut build_start = -1
   match minus {
     Some(idx) => {
       pre_start = idx + 1
       core_end = idx
-    }
-    None => ()
-  }
-  match plus {
-    Some(idx) => {
-      if pre_start >= 0 && idx < pre_start {
-        return Err("build metadata must follow prerelease")
-      }
-      build_start = idx + 1
-      if pre_start < 0 {
-        core_end = idx
-      }
     }
     None => ()
   }
@@ -211,10 +246,26 @@ fn compare_identifier(a : StringView, b : StringView) -> Int32 {
   let a_num = is_numeric_identifier(a)
   let b_num = is_numeric_identifier(b)
   if a_num && b_num {
-    match (parse_number(a), parse_number(b)) {
-      (Ok(x), Ok(y)) => cmp_int(x, y)
-      _ => 0
+    // Numeric identifiers compare by numeric value. For canonical decimal
+    // strings without leading zeroes this equals: shorter string is smaller;
+    // equal length compares lexicographically. This avoids any integer width
+    // limit and supports arbitrarily long prerelease numbers.
+    if a.length() != b.length() {
+      return cmp_int(a.length(), b.length())
     }
+    let limit = a.length()
+    for i = 0; i < limit; i = i + 1 {
+      match (a.get_char(i), b.get_char(i)) {
+        (Some(x), Some(y)) => {
+          let c = cmp_int(x.to_int(), y.to_int())
+          if c != 0 {
+            return c
+          }
+        }
+        _ => return 0
+      }
+    }
+    0
   } else if a_num {
     -1
   } else if b_num {
@@ -240,15 +291,15 @@ fn compare_identifier(a : StringView, b : StringView) -> Int32 {
 /// Compare two versions by SemVer precedence. Returns -1, 0 or 1.
 /// Build metadata is deliberately ignored.
 pub fn compare_version(a : Version, b : Version) -> Int32 {
-  let c = cmp_int(a.major, b.major)
+  let c = cmp_i64(a.major, b.major)
   if c != 0 {
     return c
   }
-  let c = cmp_int(a.minor, b.minor)
+  let c = cmp_i64(a.minor, b.minor)
   if c != 0 {
     return c
   }
-  let c = cmp_int(a.patch, b.patch)
+  let c = cmp_i64(a.patch, b.patch)
   if c != 0 {
     return c
   }
@@ -387,5 +438,75 @@ test "round trip" {
   inspect(
     version_of("1.2.3-alpha.1+sha.abc").to_string(),
     content="1.2.3-alpha.1+sha.abc",
+  )
+}
+
+///|
+/// Regression: a build suffix may legally contain `-`. A global search for
+/// `-` used to mistake that hyphen for a prerelease separator and reject the
+/// version with "build metadata must follow prerelease".
+test "build metadata may contain hyphens" {
+  inspect(is_ok(parse_version("1.2.3+build-1")), content="true")
+  inspect(is_ok(parse_version("1.2.3+build.5-1")), content="true")
+  inspect(is_ok(parse_version("1.2.3-alpha+build-1")), content="true")
+  inspect(version_of("1.2.3+build-1").to_string(), content="1.2.3+build-1")
+  // Build metadata never affects precedence.
+  inspect(
+    compare_version(version_of("1.0.0+build-1"), version_of("1.0.0+build-2")) ==
+    0,
+    content="true",
+  )
+}
+
+///|
+/// Regression: core components were Int32 without overflow checks, so
+/// 2147483648 silently wrapped to -2147483648 and broke precedence.
+test "large core components do not overflow" {
+  inspect(is_ok(parse_version("2147483648.0.0")), content="true")
+  inspect(version_of("2147483648.0.0").to_string(), content="2147483648.0.0")
+  inspect(
+    compare_version(version_of("2147483648.0.0"), version_of("5.0.0")) > 0,
+    content="true",
+  )
+  inspect(is_ok(parse_version("9223372036854775807.0.0")), content="true")
+  // Beyond the supported 64-bit range: reject clearly, never wrap negative.
+  inspect(is_ok(parse_version("9223372036854775808.0.0")), content="false")
+  inspect(is_ok(parse_version("99999999999999999999999.0.0")), content="false")
+}
+
+///|
+/// Regression: numeric prerelease identifiers compare by numeric value even
+/// when they exceed 32 bits (SemVer spec item 11).
+test "large numeric prerelease identifiers compare numerically" {
+  inspect(
+    compare_version(version_of("1.0.0-2147483648"), version_of("1.0.0-9")) > 0,
+    content="true",
+  )
+  inspect(
+    compare_version(
+      version_of("1.0.0-4294967296"),
+      version_of("1.0.0-4294967295"),
+    ) >
+    0,
+    content="true",
+  )
+  // SemVer sets no width limit on prerelease numeric identifiers: arbitrarily
+  // long identifiers parse and compare by value (length, then lexical order).
+  inspect(
+    is_ok(parse_version("1.0.0-999999999999999999999999999999999")),
+    content="true",
+  )
+  inspect(
+    compare_version(
+      version_of("1.0.0-999999999999999999999999999999999"),
+      version_of("1.0.0-999999999999999999999999999999998"),
+    ) >
+    0,
+    content="true",
+  )
+  // Leading zeroes stay forbidden even for a very long identifier.
+  inspect(
+    is_ok(parse_version("1.0.0-09999999999999999999999999999999")),
+    content="false",
   )
 }

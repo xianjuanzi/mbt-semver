@@ -48,7 +48,7 @@ fn parse_partial(text : StringView) -> Result[Version, String] {
   if pieces.length() > 3 {
     return Err("partial version has too many components: \{text}")
   }
-  let numbers : Array[Int32] = []
+  let numbers : Array[Int64] = []
   for piece in pieces {
     let p = piece.trim()
     if p == "x" || p == "X" || p == "*" {
@@ -80,22 +80,66 @@ fn parse_partial(text : StringView) -> Result[Version, String] {
 }
 
 ///|
-fn upper_for_caret(v : Version) -> Version {
-  if v.major > 0 {
-    Version::new(v.major + 1, 0, 0)
-  } else if v.minor > 0 {
-    Version::new(0, v.minor + 1, 0)
+/// Form the exclusive upper bound by incrementing one core component, with a
+/// carry towards the next more significant component on saturation. `level`
+/// selects the component: 0 = patch, 1 = minor, 2 = major.
+///
+/// Returns `None` only when no greater version can be represented (every
+/// component is at `MAX_CORE` in the relevant prefix). Callers interpret this
+/// as an unbounded upper end. This prevents `major + 1` from silently
+/// overflowing to a negative number at the Int64 limit, which used to turn a
+/// valid caret/tilde range into an empty interval.
+fn bump_upper(v : Version, level : Int32) -> Version? {
+  if level == 0 {
+    if v.patch < MAX_CORE {
+      Some(Version::new(v.major, v.minor, v.patch + 1L))
+    } else if v.minor < MAX_CORE {
+      Some(Version::new(v.major, v.minor + 1L, 0L))
+    } else if v.major < MAX_CORE {
+      Some(Version::new(v.major + 1L, 0L, 0L))
+    } else {
+      None
+    }
+  } else if level == 1 {
+    if v.minor < MAX_CORE {
+      Some(Version::new(v.major, v.minor + 1L, 0L))
+    } else if v.major < MAX_CORE {
+      Some(Version::new(v.major + 1L, 0L, 0L))
+    } else {
+      None
+    }
+  } else if v.major < MAX_CORE {
+    Some(Version::new(v.major + 1L, 0L, 0L))
   } else {
-    Version::new(0, 0, v.patch + 1)
+    None
   }
 }
 
 ///|
-fn upper_for_tilde(v : Version, had_minor : Bool) -> Version {
-  if had_minor {
-    Version::new(v.major, v.minor + 1, 0)
+fn upper_for_caret(v : Version) -> Version? {
+  if v.major > 0 {
+    bump_upper(v, 2)
+  } else if v.minor > 0 {
+    bump_upper(v, 1)
   } else {
-    Version::new(v.major + 1, 0, 0)
+    bump_upper(v, 0)
+  }
+}
+
+///|
+fn upper_for_tilde(v : Version, had_minor : Bool) -> Version? {
+  bump_upper(v, if had_minor { 1 } else { 2 })
+}
+
+///|
+/// Build a bounded-below range with an optional exclusive upper bound.
+fn bounded_range(v : Version, upper : Version?) -> Range {
+  {
+    lower: Some({ version: v, inclusive: true, }),
+    upper: match upper {
+      Some(u) => Some({ version: u, inclusive: false, })
+      None => None
+    },
   }
 }
 
@@ -148,10 +192,7 @@ fn parse_comparator(token : StringView) -> Result[Range, String] {
       let had_minor = rest.split(".").collect().length() > 1
       upper_for_tilde(v, had_minor)
     }
-    return Ok({
-      lower: Some({ version: v, inclusive: true, }),
-      upper: Some({ version: upper, inclusive: false, }),
-    })
+    return Ok(bounded_range(v, upper))
   }
 
   let v = match parse_owned(rest) {
@@ -173,19 +214,12 @@ fn parse_comparator(token : StringView) -> Result[Range, String] {
         }
         numeric = numeric + 1
       }
-      let upper = if numeric >= 2 {
-        Version::new(p.major, p.minor + 1, 0)
-      } else {
-        Version::new(p.major + 1, 0, 0)
-      }
-      return Ok({
-        lower: Some({ version: p, inclusive: true, }),
-        upper: Some({ version: upper, inclusive: false, }),
-      })
+      let upper = bump_upper(p, if numeric >= 2 { 1 } else { 2 })
+      return Ok(bounded_range(p, upper))
     }
   }
   if op == ">" {
-    Ok({ lower: None, upper: Some({ version: v, inclusive: false, }), })
+    Ok({ lower: Some({ version: v, inclusive: false, }), upper: None, })
   } else if op == ">=" {
     Ok({ lower: Some({ version: v, inclusive: true, }), upper: None, })
   } else if op == "<" {
@@ -434,4 +468,33 @@ test "invalid ranges" {
   inspect(result_is_ok(parse_range("^")), content="false")
   inspect(result_is_ok(parse_range("1.2.3 || ")), content="false")
   inspect(result_is_ok(parse_range("~x.y")), content="false")
+}
+
+///|
+/// Regression: caret/tilde/partial upper bounds used `component + 1`, which
+/// silently overflowed to a negative value at the Int64 limit and turned a
+/// valid range into an empty interval (even the exact version failed to
+/// match). The upper bound must saturate to "unbounded" instead.
+test "comparator upper bounds do not overflow at Int64 limit" {
+  // Caret at the largest major: exact version must still satisfy its own range.
+  inspect(
+    check("9223372036854775807.0.0", "^9223372036854775807.0.0"),
+    content="true",
+  )
+  // No overflowed negative upper bound: a smaller version must not match.
+  inspect(check("1.0.0", "^9223372036854775807.0.0"), content="false")
+  // Exact major comparison remains coherent at the limit.
+  inspect(
+    check("9223372036854775807.0.0", ">=9223372036854775807.0.0"),
+    content="true",
+  )
+  // Tilde and partial wildcard ranges follow the same saturation rule.
+  inspect(
+    check("9223372036854775807.0.0", "~9223372036854775807.0"),
+    content="true",
+  )
+  inspect(
+    check("9223372036854775807.0.0", "9223372036854775807.x"),
+    content="true",
+  )
 }
