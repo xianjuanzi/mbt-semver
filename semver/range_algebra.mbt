@@ -14,18 +14,24 @@ pub struct Interval {
   hi : Version?
   lo_inclusive : Bool
   hi_inclusive : Bool
+  /// `None` means "no prerelease policy" (a pure interval, as used by the
+  /// algebra-law tests). `Some(keys)` is the package-manager rule: a
+  /// prerelease version only belongs to this interval when its
+  /// `major.minor.patch` tuple appears in `keys`. Parsed ranges carry
+  /// `Some(keys)` so `parse_algebra(...)` agrees with `satisfies(...)`.
+  prerelease_keys : Array[String]?
 }
 
 ///|
-/// Construct an interval. The caller is responsible for passing a valid
-/// pair of bounds; use `normalise` to repair ordering/overlaps.
+/// Construct a pure interval with no prerelease policy. The caller is
+/// responsible for passing valid bounds; use `normalise` to repair ordering.
 pub fn Interval::new(
   lo : Version?,
   lo_inclusive : Bool,
   hi : Version?,
   hi_inclusive : Bool,
 ) -> Interval {
-  { lo, hi, lo_inclusive, hi_inclusive, }
+  { lo, hi, lo_inclusive, hi_inclusive, prerelease_keys: None, }
 }
 
 ///|
@@ -37,7 +43,7 @@ pub fn empty_set() -> Array[Interval] {
 ///|
 /// The universal interval set (matches every version).
 pub fn universal_set() -> Array[Interval] {
-  [{ lo: None, hi: None, lo_inclusive: true, hi_inclusive: true, }]
+  [Interval::new(None, true, None, true)]
 }
 
 ///|
@@ -134,7 +140,88 @@ fn make_interval(
   hi : Version?,
   hi_inclusive : Bool,
 ) -> Interval {
-  { lo, hi, lo_inclusive, hi_inclusive, }
+  Interval::new(lo, lo_inclusive, hi, hi_inclusive)
+}
+
+///|
+fn make_interval_with_keys(
+  lo : Version?,
+  lo_inclusive : Bool,
+  hi : Version?,
+  hi_inclusive : Bool,
+  prerelease_keys : Array[String]?,
+) -> Interval {
+  { lo, hi, lo_inclusive, hi_inclusive, prerelease_keys, }
+}
+
+///|
+fn core_key(v : Version) -> String {
+  "\{v.major}.\{v.minor}.\{v.patch}"
+}
+
+///|
+/// node-semver's prerelease opt-in rule, applied to the interval's policy.
+fn keys_allow(keys : Array[String]?, v : Version) -> Bool {
+  match keys {
+    None => true
+    Some(allowed) => {
+      if v.prerelease.length() == 0 {
+        return true
+      }
+      let k = core_key(v)
+      for a in allowed {
+        if a == k {
+          return true
+        }
+      }
+      false
+    }
+  }
+}
+
+///|
+/// Intersection of two prerelease policies: the stricter (smaller) set wins.
+fn meet_keys(a : Array[String]?, b : Array[String]?) -> Array[String]? {
+  match (a, b) {
+    (None, other) => other
+    (other, None) => other
+    (Some(xs), Some(ys)) => {
+      let out : Array[String] = []
+      for x in xs {
+        for y in ys {
+          if x == y {
+            out.push(x)
+          }
+        }
+      }
+      Some(out)
+    }
+  }
+}
+
+///|
+fn keys_equal(a : Array[String]?, b : Array[String]?) -> Bool {
+  match (a, b) {
+    (None, None) => true
+    (Some(xs), Some(ys)) => {
+      if xs.length() != ys.length() {
+        return false
+      }
+      for x in xs {
+        let mut found = false
+        for y in ys {
+          if x == y {
+            found = true
+          }
+        }
+        if !found {
+          return false
+        }
+      }
+      true
+    }
+    _ => false
+  }
 }
 
 ///|
@@ -248,10 +335,17 @@ pub fn normalise(intervals : Array[Interval]) -> Array[Interval] {
       out.push(iv)
     } else {
       let last = out[out.length() - 1]
-      if intervals_mergeable(last, iv) {
+      if intervals_mergeable(last, iv) &&
+        keys_equal(last.prerelease_keys, iv.prerelease_keys) {
         let (lo, lo_inc) = lo_min(last, iv)
         let (hi, hi_inc) = hi_max(last, iv)
-        out[out.length() - 1] = make_interval(lo, lo_inc, hi, hi_inc)
+        out[out.length() - 1] = make_interval_with_keys(
+          lo,
+          lo_inc,
+          hi,
+          hi_inc,
+          last.prerelease_keys,
+        )
       } else {
         out.push(iv)
       }
@@ -290,7 +384,13 @@ pub fn intersection(
     for y in b {
       let (lo, lo_inc) = lo_max(x, y)
       let (hi, hi_inc) = hi_min(x, y)
-      let iv = make_interval(lo, lo_inc, hi, hi_inc)
+      let iv = make_interval_with_keys(
+        lo,
+        lo_inc,
+        hi,
+        hi_inc,
+        meet_keys(x.prerelease_keys, y.prerelease_keys),
+      )
       if !interval_is_empty(iv) {
         parts.push(iv)
       }
@@ -384,7 +484,15 @@ pub fn satisfiable(a : Array[Interval], b : Array[Interval]) -> Bool {
 ///|
 /// Whether an interval set covers the whole version space.
 pub fn is_universal(set : Array[Interval]) -> Bool {
-  let s = normalise(set)
+  // Universality is a statement about the version *axis*, independent of
+  // any prerelease opt-in policy attached to individual intervals. Strip the
+  // policies before checking coverage, otherwise A and complement(A) appear
+  // non-universal merely because their policies differ.
+  let plain : Array[Interval] = []
+  for iv in set {
+    plain.push(Interval::new(iv.lo, iv.lo_inclusive, iv.hi, iv.hi_inclusive))
+  }
+  let s = normalise(plain)
   if s.length() != 1 {
     return false
   }
@@ -414,7 +522,7 @@ pub fn contains(set : Array[Interval], version : Version) -> Bool {
         c < 0 || (c == 0 && iv.hi_inclusive)
       }
     }
-    if lower_ok && upper_ok {
+    if keys_allow(iv.prerelease_keys, version) && lower_ok && upper_ok {
       return true
     }
   }
@@ -447,8 +555,21 @@ fn range_to_interval(r : Range) -> Interval {
 /// Build a normalised interval set from an existing `RangeSet`.
 pub fn from_range_set(set : RangeSet) -> Array[Interval] {
   let parts : Array[Interval] = []
-  for r in set.ranges {
-    parts.push(range_to_interval(r))
+  // Prerelease opt-in is per `||` branch: attach each group's own keys to
+  // its interval. Sharing one global key array across all branches used to
+  // let a prerelease in one branch authorise the same tuple in another,
+  // disagreeing with both `satisfies` and node-semver.
+  for i = 0; i < set.ranges.length(); i = i + 1 {
+    let iv = range_to_interval(set.ranges[i])
+    parts.push(
+      make_interval_with_keys(
+        iv.lo,
+        iv.lo_inclusive,
+        iv.hi,
+        iv.hi_inclusive,
+        Some(set.keys_per_range[i]),
+      ),
+    )
   }
   normalise(parts)
 }
@@ -623,6 +744,40 @@ test "canonical form for equivalent expressions" {
   inspect(to_string(a) == to_string(b), content="true")
 }
 
+///|
+/// Hyphen ranges desugar to primitive comparators; the interval set must be
+/// identical to the hand-written equivalent expression. This is the algebra
+/// layer's direct check of the node-semver semantics implemented in range.mbt.
+test "hyphen ranges normalise to their comparator equivalents" {
+  inspect(
+    to_string(parse("1.2.3 - 2.3.4").unwrap_or_else(fn() { [] })),
+    content=to_string(parse(">=1.2.3 <=2.3.4").unwrap_or_else(fn() { [] })),
+  )
+  inspect(
+    to_string(parse("1.2 - 2.3.4").unwrap_or_else(fn() { [] })),
+    content=to_string(parse(">=1.2.0 <=2.3.4").unwrap_or_else(fn() { [] })),
+  )
+  inspect(
+    to_string(parse("1.2.3 - 2.3").unwrap_or_else(fn() { [] })),
+    content=to_string(parse(">=1.2.3 <2.4.0-0").unwrap_or_else(fn() { [] })),
+  )
+  inspect(
+    to_string(parse("1.2.3 - 2").unwrap_or_else(fn() { [] })),
+    content=to_string(parse(">=1.2.3 <3.0.0-0").unwrap_or_else(fn() { [] })),
+  )
+  // A hyphen range composes with the boolean operations like any other set.
+  let a = parse("1.0.0 - 3.0.0").unwrap_or_else(fn() { [] })
+  let b = parse("2.0.0 - 4.0.0").unwrap_or_else(fn() { [] })
+  inspect(
+    to_string(intersection(a, b)),
+    content=to_string(parse("2.0.0 - 3.0.0").unwrap_or_else(fn() { [] })),
+  )
+  inspect(
+    satisfiable(a, parse("4.0.0 - 5.0.0").unwrap_or_else(fn() { [] })),
+    content="false",
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Regression and algebraic-law tests. These exercise unbounded endpoints and
 // the identities that a correct interval algebra must satisfy; several of
@@ -763,6 +918,125 @@ test "prerelease versions respect SemVer precedence in sets" {
   inspect(contains(s, version_of("0.9.0")), content="false")
 }
 
+///|
+/// Regression: caret/tilde/partial exclusive bounds must be `<X.Y.Z-0`, so
+/// the algebra layer (pure intervals) agrees with the base `satisfies` layer
+/// (prerelease opt-in) on prereleases of the *next* tuple. Before this fix
+/// `parse("^1.2.3")` produced `>=1.2.3 <2.0.0`, whose `contains` wrongly
+/// accepted `2.0.0-alpha` while `satisfies` correctly rejected it.
+test "exclusive upper bounds exclude the next tuple's prereleases" {
+  let cases = [
+    ("^1.2.3", ">=1.2.3 <2.0.0-0", "2.0.0-alpha"),
+    ("~1.2.3", ">=1.2.3 <1.3.0-0", "1.3.0-alpha"),
+    ("1.2.x", ">=1.2.0 <1.3.0-0", "1.3.0-alpha"),
+    ("1.x", ">=1.0.0 <2.0.0-0", "2.0.0-alpha"),
+    ("^0.2.3", ">=0.2.3 <0.3.0-0", "0.3.0-alpha"),
+    ("^0.0.3", ">=0.0.3 <0.0.4-0", "0.0.4-alpha"),
+  ]
+  for (range_text, expected, next_pre) in cases {
+    let set = parse(range_text).unwrap_or_else(fn() { [] })
+    inspect(to_string(set) == expected, content="true")
+    let next = match parse_version(next_pre) {
+      Ok(v) => v
+      Err(e) => fail("bad fixture \{next_pre}: \{e}")
+    }
+    // Algebra layer: the next tuple's prerelease is excluded.
+    inspect(contains(set, next), content="false")
+    // Base layer: satisfies agrees (no prerelease opt-in for the next tuple).
+    match satisfies_text(next, range_text) {
+      Ok(r) => inspect(r, content="false")
+      Err(e) => fail("bad range \{range_text}: \{e}")
+    }
+  }
+}
+
+///|
+/// Regression: a prerelease version must only match a parsed interval set
+/// when the range explicitly opts in to the same major.minor.patch tuple.
+/// Before the opt-in policy was carried on intervals, `contains` used pure
+/// precedence and accepted `1.5.0-beta` for `^1.0.0-alpha`, contradicting
+/// both `satisfies` and node-semver ("prereleases of a different tuple").
+test "algebra prerelease opt-in agrees with satisfies" {
+  let s = parse("^1.0.0-alpha").unwrap_or_else(fn() { [] })
+  inspect(contains(s, version_of("1.0.0-beta")), content="true")
+  inspect(contains(s, version_of("1.0.0-alpha.1")), content="true")
+  inspect(contains(s, version_of("1.5.0-beta")), content="false")
+  inspect(contains(s, version_of("2.0.0-alpha")), content="false")
+  match satisfies_text(version_of("1.5.0-beta"), "^1.0.0-alpha") {
+    Ok(r) => inspect(r, content="false")
+    Err(e) => fail("bad range: \{e}")
+  }
+  // A wildcard range does not opt in to any prerelease tuple.
+  let all = parse("*").unwrap_or_else(fn() { [] })
+  inspect(contains(all, version_of("1.0.0-alpha")), content="false")
+  inspect(contains(all, version_of("1.0.0")), content="true")
+  // The empty range is the universal X-range, not a parse error.
+  inspect(to_string(parse("").unwrap_or_else(fn() { [] })), content="*")
+  inspect(
+    contains(parse("").unwrap_or_else(fn() { [] }), version_of("9.9.9")),
+    content="true",
+  )
+}
+
+///|
+/// Regression: the algebra layer shares `parse_range`, so the node-semver
+/// written-precision fix for zero-major caret ranges must be visible here too.
+/// `^0` and `^0.x` are <1.0.0-0 while `^0.0` is <0.1.0-0 and `^0.0.0` is
+/// <0.0.1-0; previously all four collapsed to <0.0.1-0.
+test "algebra layer respects written-precision caret bounds" {
+  inspect(
+    to_string(parse("^0").unwrap_or_else(fn() { [] })),
+    content=">=0.0.0 <1.0.0-0",
+  )
+  inspect(
+    to_string(parse("^0.x").unwrap_or_else(fn() { [] })),
+    content=">=0.0.0 <1.0.0-0",
+  )
+  inspect(
+    to_string(parse("^0.0").unwrap_or_else(fn() { [] })),
+    content=">=0.0.0 <0.1.0-0",
+  )
+  inspect(
+    to_string(parse("^0.0.0").unwrap_or_else(fn() { [] })),
+    content=">=0.0.0 <0.0.1-0",
+  )
+  // Partial comparators are valid operands and desugar to the same intervals.
+  inspect(to_string(parse(">1").unwrap_or_else(fn() { [] })), content=">=2.0.0")
+  inspect(
+    to_string(parse("<=1.2").unwrap_or_else(fn() { [] })),
+    content="<1.3.0-0",
+  )
+}
+
+///|
+test "conflict diagnosis report renders overlap, exclusive parts and status" {
+  let a = parse(">=1.0.0 <3.0.0").unwrap_or_else(fn() { [] })
+  let b = parse(">=2.0.0 <4.0.0").unwrap_or_else(fn() { [] })
+  let expected = "== conflict diagnosis ==\n" +
+    "A        = >=1.0.0 <3.0.0\n" +
+    "B        = >=2.0.0 <4.0.0\n" +
+    "overlap  = >=2.0.0 <3.0.0\n" +
+    "A only   = >=1.0.0 <2.0.0\n" +
+    "B only   = >=3.0.0 <4.0.0\n" +
+    "union    = >=1.0.0 <4.0.0\n" +
+    "status   = COMPATIBLE (partial overlap)"
+  inspect(algebra_diagnose(a, b) == expected, content="true")
+
+  let c = parse(">=5.0.0 <6.0.0").unwrap_or_else(fn() { [] })
+  let conflict = algebra_diagnose(a, c)
+  inspect(conflict.contains("overlap  = <empty>"), content="true")
+  inspect(
+    conflict.contains("status   = CONFLICT (no version satisfies both)"),
+    content="true",
+  )
+  // A is a subset of its union with another set: subset status must appear.
+  let sub = algebra_diagnose(a, parse("*").unwrap_or_else(fn() { [] }))
+  inspect(
+    sub.contains("status   = COMPATIBLE (A is a subset of B)"),
+    content="true",
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Public aliases with an explicit `algebra_` prefix. These make the range-set
 // algebra API unambiguous next to the classic range API (`parse_range`,
@@ -818,6 +1092,37 @@ pub fn algebra_complement(a : Array[Interval]) -> Array[Interval] {
 /// Whether two interval sets can be satisfied at the same time.
 pub fn algebra_satisfiable(a : Array[Interval], b : Array[Interval]) -> Bool {
   satisfiable(a, b)
+}
+
+///|
+/// Render a human-readable conflict diagnosis for two interval sets.
+///
+/// The report shows both normalised sets, their overlap, the parts exclusive
+/// to each side, their union and a status line. Every field is derived from
+/// the algebra operations, so the report is a faithful view of the sets and
+/// can be printed directly by the CLI.
+pub fn algebra_diagnose(a : Array[Interval], b : Array[Interval]) -> String {
+  let inter = intersection(a, b)
+  let a_only = difference(a, b)
+  let b_only = difference(b, a)
+  let uni = union(a, b)
+  let mut out = "== conflict diagnosis ==\n"
+  out = out + "A        = " + to_string(a) + "\n"
+  out = out + "B        = " + to_string(b) + "\n"
+  out = out + "overlap  = " + to_string(inter) + "\n"
+  out = out + "A only   = " + to_string(a_only) + "\n"
+  out = out + "B only   = " + to_string(b_only) + "\n"
+  out = out + "union    = " + to_string(uni) + "\n"
+  if is_empty(inter) {
+    out = out + "status   = CONFLICT (no version satisfies both)"
+  } else if is_empty(a_only) {
+    out = out + "status   = COMPATIBLE (A is a subset of B)"
+  } else if is_empty(b_only) {
+    out = out + "status   = COMPATIBLE (B is a subset of A)"
+  } else {
+    out = out + "status   = COMPATIBLE (partial overlap)"
+  }
+  out
 }
 
 // ---------------------------------------------------------------------------
@@ -906,7 +1211,7 @@ fn ref_has(set : Array[Interval], v : Version) -> Bool {
         }
       }
     }
-    if lower_ok && upper_ok {
+    if keys_allow(iv.prerelease_keys, v) && lower_ok && upper_ok {
       return true
     }
   }
@@ -1067,6 +1372,172 @@ test "exhaustive: boolean algebra laws over interval triples" {
           )
         }
       }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Property-based testing (QuickCheck-style, but deterministic).
+//
+// Instead of enumerating a fixed set of cases, we generate pseudo-random
+// interval sets from a seed and assert algebraic laws over them. The generator
+// is a Park-Miller LCG implemented in MoonBit with no external dependency, so
+// every run is reproducible: a failing seed can be replayed exactly.
+//
+// Equality of two sets is decided by `prop_eq`, which compares membership on
+// a dense probe domain using the independent endpoint-based `ref_has` (never
+// the library's own `contains`). The probe inserts prerelease points between
+// consecutive patch versions so open/closed endpoints are distinguishable.
+// ---------------------------------------------------------------------------
+
+///|
+/// Park-Miller minimal standard generator. Seed stays below 2^31, so the
+/// multiplication cannot overflow Int64.
+fn rand_int(seed : Int64, bound : Int64) -> (Int64, Int64) {
+  let next = seed * 16807 % 2147483647
+  (next % bound, next)
+}
+
+///|
+/// Generate an interval set of up to three pseudo-random intervals.
+fn rand_set(seed : Int64, domain : Array[Version]) -> (Array[Interval], Int64) {
+  let bounds = bounds_from(domain)
+  let bound_count = bounds.length().to_int64()
+  let mut state = seed
+  let out : Array[Interval] = []
+  for _i = 0; _i < 3; _i = _i + 1 {
+    let (lo_i, s1) = rand_int(state, bound_count)
+    let (hi_i, s2) = rand_int(s1, bound_count)
+    let (lo_b, s3) = rand_int(s2, 2)
+    let (hi_b, s4) = rand_int(s3, 2)
+    state = s4
+    out.push(
+      Interval::new(
+        bounds[lo_i.to_int()],
+        lo_b == 1,
+        bounds[hi_i.to_int()],
+        hi_b == 1,
+      ),
+    )
+  }
+  (out, state)
+}
+
+///|
+/// A version with a prerelease identifier, constructed directly so this
+/// helper stays free of the error effect carried by `version_of`.
+fn pre_version(patch : Int64) -> Version {
+  { major: 0, minor: 0, patch, prerelease: ["alpha"], build: None, }
+}
+
+///|
+/// Dense probe: a prerelease point between every pair of patch versions makes
+/// open/closed endpoints observable, and the trailing points lie beyond every
+/// finite endpoint generated by `rand_set`.
+fn property_probe() -> Array[Version] {
+  [
+    pre_version(0),
+    Version::new(0, 0, 0),
+    pre_version(1),
+    Version::new(0, 0, 1),
+    pre_version(2),
+    Version::new(0, 0, 2),
+    pre_version(3),
+    Version::new(0, 0, 3),
+    pre_version(4),
+    Version::new(0, 0, 4),
+    Version::new(0, 0, 5),
+    Version::new(100, 0, 0),
+  ]
+}
+
+///|
+fn prop_eq(a : Array[Interval], b : Array[Interval]) -> Bool {
+  for v in property_probe() {
+    if ref_has(a, v) != ref_has(b, v) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+/// Deterministic property test: 250 seeds x 3 random interval sets, checking
+/// the full boolean-algebra law set against an independent membership oracle.
+test "property: pseudo-random sets satisfy boolean algebra laws" {
+  let domain = domain_of(5)
+  let mut seed : Int64 = 1
+  for iter = 0; iter < 250; iter = iter + 1 {
+    let (a, s1) = rand_set(seed, domain)
+    let (b, s2) = rand_set(s1 + 1, domain)
+    let (c, s3) = rand_set(s2 + 1, domain)
+    seed = s3 + 1
+
+    if !prop_eq(union(a, a), a) {
+      fail("iter \{iter}: union not idempotent")
+    }
+    if !prop_eq(intersection(a, a), a) {
+      fail("iter \{iter}: intersection not idempotent")
+    }
+    if !prop_eq(union(a, b), union(b, a)) {
+      fail("iter \{iter}: union not commutative")
+    }
+    if !prop_eq(intersection(a, b), intersection(b, a)) {
+      fail("iter \{iter}: intersection not commutative")
+    }
+    if !prop_eq(union(union(a, b), c), union(a, union(b, c))) {
+      fail("iter \{iter}: union not associative")
+    }
+    if !prop_eq(
+        intersection(intersection(a, b), c),
+        intersection(a, intersection(b, c)),
+      ) {
+      fail("iter \{iter}: intersection not associative")
+    }
+    if !prop_eq(
+        intersection(a, union(b, c)),
+        union(intersection(a, b), intersection(a, c)),
+      ) {
+      fail("iter \{iter}: intersection over union not distributive")
+    }
+    if !prop_eq(
+        union(a, intersection(b, c)),
+        intersection(union(a, b), union(a, c)),
+      ) {
+      fail("iter \{iter}: union over intersection not distributive")
+    }
+    if !prop_eq(
+        complement(union(a, b)),
+        intersection(complement(a), complement(b)),
+      ) {
+      fail("iter \{iter}: De Morgan (union) failed")
+    }
+    if !prop_eq(
+        complement(intersection(a, b)),
+        union(complement(a), complement(b)),
+      ) {
+      fail("iter \{iter}: De Morgan (intersection) failed")
+    }
+    if !prop_eq(complement(complement(a)), a) {
+      fail("iter \{iter}: double complement failed")
+    }
+    if !prop_eq(union(a, complement(a)), universal_set()) {
+      fail("iter \{iter}: A union not-A is not universal")
+    }
+    if !is_empty(intersection(a, complement(a))) {
+      fail("iter \{iter}: A intersection not-A is not empty")
+    }
+    if !prop_eq(difference(a, b), intersection(a, complement(b))) {
+      fail("iter \{iter}: difference disagrees with complement definition")
+    }
+    if !prop_eq(union(a, intersection(a, b)), a) {
+      fail("iter \{iter}: absorption (union) failed")
+    }
+    if !prop_eq(intersection(a, union(a, b)), a) {
+      fail("iter \{iter}: absorption (intersection) failed")
+    }
+    if satisfiable(a, b) != !is_empty(intersection(a, b)) {
+      fail("iter \{iter}: satisfiable disagrees with intersection")
     }
   }
 }

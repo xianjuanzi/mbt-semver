@@ -10,6 +10,7 @@ fn usage() -> Unit {
   println("  moon run cmd -- compare <version-a> <version-b>")
   println("  moon run cmd -- check <version> <range>")
   println("  moon run cmd -- algebra           # range set algebra demo")
+  println("  moon run cmd -- diagnose <range-a> <range-b>")
   println("  moon run cmd -- demo")
 }
 
@@ -144,6 +145,32 @@ fn show_algebra() -> Unit {
     (Err(e), _) => println("invalid range: \{e}")
     (_, Err(e)) => println("invalid range: \{e}")
   }
+  println("")
+  println("== hyphen ranges (node-semver inclusive set) ==")
+  match
+    (
+      @semver.parse_algebra("1.2.3 - 2.3.4"),
+      @semver.parse_algebra("1.2.3 - 2.3"),
+      @semver.parse_algebra("1.2.3 - 2"),
+    ) {
+    (Ok(x), Ok(y), Ok(z)) => {
+      println("1.2.3 - 2.3.4 = \{@semver.algebra_to_string(x)}")
+      println("1.2.3 - 2.3   = \{@semver.algebra_to_string(y)}")
+      println("1.2.3 - 2     = \{@semver.algebra_to_string(z)}")
+    }
+    (Err(e), _, _) => println("invalid range: \{e}")
+    (_, Err(e), _) => println("invalid range: \{e}")
+    (_, _, Err(e)) => println("invalid range: \{e}")
+  }
+}
+
+///|
+fn show_diagnose(a_text : String, b_text : String) -> Unit {
+  match (@semver.parse_algebra(a_text), @semver.parse_algebra(b_text)) {
+    (Ok(a), Ok(b)) => println(@semver.algebra_diagnose(a, b))
+    (Err(e), _) => println("invalid range A '\{a_text}': \{e}")
+    (_, Err(e)) => println("invalid range B '\{b_text}': \{e}")
+  }
 }
 
 ///|
@@ -162,6 +189,8 @@ fn main {
     show_check(args[2], args[3])
   } else if command == "algebra" {
     show_algebra()
+  } else if command == "diagnose" && args.length() >= 4 {
+    show_diagnose(args[2], args[3])
   } else if command == "demo" {
     show_demo()
   } else {

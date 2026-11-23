@@ -44,14 +44,14 @@ MoonBit 生态在快速生长，依赖版本判断是包管理与开发工具的
 | 交付物 | 位置 | 对应验收项 |
 | --- | --- | --- |
 | 库源码（3 个模块） | `semver/*.mbt` | MoonBit 为主、原创实现 |
-| 38 个单元测试 | 各模块内 `test` 块 | 必要测试、边界覆盖、代数定律、有限域穷举 |
+| 51 个单元测试 | 各模块内 `test` 块 | 必要测试、边界覆盖、代数定律、有限域穷举、伪随机属性测试、连字符范围、诊断报告、双层预发布一致性、书写精度 caret 上界、partial 比较符、OR 分支预发布准入隔离 |
 | 可执行示例 CLI | `cmd/main.mbt` | 可运行示例 |
 | 使用文档 | `README.md` | 清晰 README |
 | 内部项目素材 | 本文件 | 仅供参考，不可直接提交 |
 | 开发记录与 AI 说明 | `DEVELOPMENT_LOG.md` | AI 可解释 |
 | 许可证 | `LICENSE` | 开源合规 |
 
-`moon check` 与 `moon test` 均通过：`Total tests: 38, passed: 38, failed: 0.`
+`moon check` 与 `moon test` 均通过：`Total tests: 51, passed: 51, failed: 0.`
 
 ## 5. 开发计划
 

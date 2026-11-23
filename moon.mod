@@ -1,6 +1,6 @@
 name = "hackathon/mbt-semver"
 
-version = "0.1.0"
+version = "0.5.6"
 
 readme = "README.md"
 
