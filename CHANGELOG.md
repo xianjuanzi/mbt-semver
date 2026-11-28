@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.7] - 2026-11-27 (final)
+
+### Changed (publishing)
+
+- Module namespace changed from `hackathon/mbt-semver` to `xianjuanzi/mbt-semver` to match the author's mooncakes.io account; `cmd/moon.pkg` import updated accordingly.
+- Published to mooncakes.io as `xianjuanzi/mbt-semver`; docs at `https://mooncakes.io/docs/xianjuanzi/mbt-semver`.
+- README corrected: the mooncakes.io publication item is now marked done rather than pending.
+- No semantic changes; `moon test` remains 51/51 passing.
+
 ## [0.5.6] - 2026-11-23 (final)
 
 ### Fixed (final self-check: universal OR branch collapses prerelease opt-in)

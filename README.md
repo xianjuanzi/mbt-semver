@@ -56,9 +56,24 @@ moonbit-semver/
 └── LICENSE                  # Apache-2.0
 ```
 
-## 快速开始
+## 安装
 
-需要 MoonBit 工具链（`moon` 与 `moonc`）。
+**作为依赖引入**（发布在 mooncakes.io）：
+
+```bash
+moon add xianjuanzi/mbt-semver
+```
+
+在 MoonBit 源码中用 `@semver` 引用库包，例如 `@semver.parse_version("1.2.3")`。
+
+**从源码运行**：需要 MoonBit 工具链（`moon` 与 `moonc`，版本不低于 1.0.0-rc1）。
+
+```bash
+git clone https://github.com/xianjuanzi/mbt-semver.git
+cd mbt-semver
+```
+
+## 快速开始
 
 ```bash
 # 类型检查
@@ -220,6 +235,6 @@ Total tests: 51, passed: 51, failed: 0.
 
 - ✅ **属性测试**：`range_algebra.mbt` 内置确定性伪随机属性测试（Park-Miller LCG，零依赖、种子可复现），250 组种子 × 3 个随机区间集合逐条校验 17 条代数定律；已通过变异测试验证其能捕获人为注入的缺陷。
 - ✅ **冲突诊断报告渲染**：`algebra_diagnose(a, b)` 公开 API 与 `diagnose` CLI 子命令，把区间集合渲染为含重叠段、独占段、并集和状态判定的可读报告。
-- ⏳ **发布到 mooncakes.io**：模块元数据（`moon.mod` 的 name/version/license/repository/description）已就绪，可直接 `moon publish`；此步需作者本人的 mooncakes.io 账号（本地无登录凭据，`moon publish --dry-run` 提示 `Registry login is required; run moon login`），故未代为发布。仓库已在 GitHub 公开，不影响赛事验收。
+- ✅ **发布到 mooncakes.io**：已发布为 `xianjuanzi/mbt-semver`，文档页 `https://mooncakes.io/docs/xianjuanzi/mbt-semver`，版本 0.5.7；可由依赖方用 `moon add xianjuanzi/mbt-semver` 引入。
 
-仓库地址与 GitHub ID 已按 `xianjuanzi` 填好，按 `运行与上传指南.md` 完成上传与报名即可。
+三项后续计划均已落地，本版本为终版。仓库地址与 GitHub ID 已按 `xianjuanzi` 填好，按 `运行与上传指南.md` 完成上传与报名即可。

@@ -1,5 +1,5 @@
 import {
-  "hackathon/mbt-semver/semver",
+  "xianjuanzi/mbt-semver/semver",
   "moonbitlang/core/env",
 }
 
